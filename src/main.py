@@ -5,7 +5,7 @@ MODEL_PATH = "models/emotion.onnx"
 LABELS = json.load(open("models/labels.json"))
 IMG_SIZE = 96
 MARGIN = 0.1
-EMA_ALPHA = 0.4
+EMA_ALPHA = 0.2
 
 sess = ort.InferenceSession(MODEL_PATH, providers=["CPUExecutionProvider"])
 input_name = sess.get_inputs()[0].name

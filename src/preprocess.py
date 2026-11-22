@@ -1,12 +1,11 @@
-import cv2, numpy as np
-def __init__(self, LABELS):
-    self.LABELS = LABELS
+import cv2
+import numpy as np
 
 def process(grayface):
     g48 = cv2.resize(grayface, (48, 48), interpolation=cv2.INTER_AREA)
     g96 = cv2.resize(g48, (96, 96), interpolation=cv2.INTER_CUBIC)
 
-    x = np.stack([g96]*3, axis=-1).astype(np.unit8)
+    x = np.stack([g96]*3, axis=-1).astype(np.uint8)
 
     return x[None]
 
