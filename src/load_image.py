@@ -1,30 +1,55 @@
+import os
 import cv2
 
-anger = cv2.imread('assets/anger.png', cv2.IMREAD_UNCHANGED)
-contempt = cv2.imread('assets/contempt.png', cv2.IMREAD_UNCHANGED)
-disgust = cv2.imread('assets/disgust.png', cv2.IMREAD_UNCHANGED)
-fear = cv2.imread('assets/fear.png', cv2.IMREAD_UNCHANGED)
-happy = cv2.imread('assets/happy.png', cv2.IMREAD_UNCHANGED)
-neutral = cv2.imread('assets/neutral.png', cv2.IMREAD_UNCHANGED)
-sadness = cv2.imread('assets/sadness.png', cv2.IMREAD_UNCHANGED)
-surprise = cv2.imread('assets/surprise.png', cv2.IMREAD_UNCHANGED)
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+ASSETS_DIR = os.path.join(BASE_DIR, "assets")
+
+def _read_asset(base_name):
+    for ext in ['.jpg', '.png', '.jpeg', '.webp']:
+        path = os.path.join(ASSETS_DIR, f"{base_name}{ext}")
+        if os.path.exists(path):
+            img = cv2.imread(path, cv2.IMREAD_UNCHANGED)
+            if img is not None:
+                return img
+        # Also try relative to current working directory
+        rel_path = os.path.join("assets", f"{base_name}{ext}")
+        if os.path.exists(rel_path):
+            img = cv2.imread(rel_path, cv2.IMREAD_UNCHANGED)
+            if img is not None:
+                return img
+    return None
+
+anger = _read_asset('anger')
+contempt = _read_asset('contempt')
+disgust = _read_asset('disgust')
+fear = _read_asset('fear')
+happiness = _read_asset('happiness')
+happy = happiness
+neutral = _read_asset('neutral')
+sadness = _read_asset('sadness')
+surprise = _read_asset('surprise')
+
+_IMAGES = {
+    'anger': anger,
+    'contempt': contempt,
+    'disgust': disgust,
+    'fear': fear,
+    'happiness': happiness,
+    'happy': happiness,
+    'neutral': neutral,
+    'sadness': sadness,
+    'surprise': surprise
+}
 
 def load_image(label):
-    if label == 'anger':
-        return anger
-    elif label == 'contempt':
-        return contempt
-    elif label == 'disgust':
-        return disgust
-    elif label == 'fear':
-        return fear
-    elif label == 'happy':
-        return happy
-    elif label == 'neutral':
-        return neutral
-    elif label == 'sadness':
-        return sadness
-    elif label == 'surprise':
-        return surprise
-    else:
-        raise ValueError(f"Unknown label: {label}")
+    if not label:
+        return None
+    key = str(label).lower().strip()
+    if key in _IMAGES and _IMAGES[key] is not None:
+        return _IMAGES[key]
+    # Fallback to direct read attempt
+    img = _read_asset(key)
+    if img is not None:
+        _IMAGES[key] = img
+        return img
+    raise ValueError(f"Unknown label: {label}")

@@ -1,6 +1,11 @@
 import cv2
 import numpy as np
 
+try:
+    from load_image import load_image
+except ImportError:
+    from src.load_image import load_image
+
 def process(grayface):
     g48 = cv2.resize(grayface, (48, 48), interpolation=cv2.INTER_AREA)
     g96 = cv2.resize(g48, (96, 96), interpolation=cv2.INTER_CUBIC)
@@ -15,86 +20,107 @@ def draw_bars(LABELS, frame, probs, x0=10, y0=60):
         cv2.rectangle(frame, (x0+90, y-12), (x0+90+int(p*150), y), (0, 200, 0), -1)
         cv2.putText(frame, f'{name[:9]:9s} {p:4.0%}', (x0, y), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 255), 1, cv2.LINE_AA)
 
-def draw_result_panel(panel, labels, cached_result, is_timed_out, remaining_timeout, timeout_duration=5.0):
+def draw_confidence_overlay(frame, labels, probs, top_idx=None, alpha=0.55):
     """
-    Renders the model results and cooldown status in the 30% right placeholder panel.
-    Scales dynamically to fit any panel dimensions.
+    Renders the confidence breakdown as a semi-transparent HUD overlay on the webcam feed.
     """
-    h, w = panel.shape[:2]
-    panel[:] = (26, 26, 30)  
+    h, w = frame.shape[:2]
+    scale = max(0.65, min(1.6, h / 480.0))
 
-    scale = max(0.5, min(2.5, min(h / 480.0, w / 274.0)))
-    pad = int(14 * scale)
-    thick_bold = max(1, int(round(1.8 * scale)))
-    thick_norm = max(1, int(round(scale)))
+    pad = int(12 * scale)
+    row_h = int(19 * scale)
+    box_w = int(220 * scale)
+    box_h = int((30 + len(labels) * 19 + 8) * scale)
 
-    cv2.putText(panel, 'MODEL RESULT', (pad, int(30 * scale)), cv2.FONT_HERSHEY_SIMPLEX, 0.62 * scale, (255, 255, 255), thick_bold, cv2.LINE_AA)
-    cv2.putText(panel, 'Result Placeholder (30%)', (pad, int(48 * scale)), cv2.FONT_HERSHEY_SIMPLEX, 0.38 * scale, (150, 150, 150), thick_norm, cv2.LINE_AA)
-    cv2.line(panel, (pad, int(56 * scale)), (w - pad, int(56 * scale)), (65, 65, 75), thick_norm)
+    x0, y0 = int(16 * scale), int(16 * scale)
+    x1, y1 = x0 + box_w, y0 + box_h
 
-    if is_timed_out:
-        status_text = f'TIMEOUT: {remaining_timeout:.1f}s'
-        status_color = (0, 180, 255)  
-        sub_status = 'Holding result...'
-    else:
-        status_text = 'STATUS: READY'
-        status_color = (0, 255, 100)  
-        sub_status = 'Scanning face...'
+    if x1 > w or y1 > h:
+        return
 
-    cv2.putText(panel, status_text, (pad, int(76 * scale)), cv2.FONT_HERSHEY_SIMPLEX, 0.46 * scale, status_color, thick_norm, cv2.LINE_AA)
-    sub_w = int(110 * scale)
-    if w - pad - sub_w > pad + int(100 * scale):
-        cv2.putText(panel, sub_status, (w - pad - sub_w, int(76 * scale)), cv2.FONT_HERSHEY_SIMPLEX, 0.35 * scale, (150, 150, 150), thick_norm, cv2.LINE_AA)
+    roi = frame[y0:y1, x0:x1]
+    overlay_bg = np.full_like(roi, (18, 18, 22), dtype=np.uint8)
+    blended = cv2.addWeighted(overlay_bg, alpha, roi, 1.0 - alpha, 0)
 
-    bar_top = int(84 * scale)
-    bar_bot = int(93 * scale)
-    cv2.rectangle(panel, (pad, bar_top), (w - pad, bar_bot), (48, 48, 55), -1)
-    if is_timed_out and timeout_duration > 0:
-        ratio = max(0.0, min(1.0, remaining_timeout / timeout_duration))
-        fill_w = int((w - 2 * pad) * ratio)
-        cv2.rectangle(panel, (pad, bar_top), (pad + fill_w, bar_bot), status_color, -1)
-    elif not is_timed_out:
-        cv2.rectangle(panel, (pad, bar_top), (w - pad, bar_bot), (0, 180, 80), -1)
+    cv2.putText(blended, 'confidence', (pad, int(20 * scale)), cv2.FONT_HERSHEY_SIMPLEX, 0.40 * scale, (210, 210, 210), 1, cv2.LINE_AA)
 
-    card_top = int(104 * scale)
-    card_bot = int(172 * scale)
-    cv2.rectangle(panel, (pad, card_top), (w - pad, card_bot), (38, 38, 46), -1)
-    cv2.rectangle(panel, (pad, card_top), (w - pad, card_bot), (65, 65, 80), thick_norm)
+    name_w = int(68 * scale)
+    pct_w = int(36 * scale)
+    bar_x = pad + name_w + int(4 * scale)
+    bar_max_w = box_w - pad - bar_x - pct_w - int(4 * scale)
 
-    if cached_result is not None:
-        cv2.putText(panel, 'CURRENT PREDICTION:', (pad + int(10 * scale), int(122 * scale)), cv2.FONT_HERSHEY_SIMPLEX, 0.38 * scale, (160, 160, 160), thick_norm, cv2.LINE_AA)
-        label_text = cached_result['label'].upper()
-        conf_val = cached_result['conf']
-        cv2.putText(panel, label_text, (pad + int(10 * scale), int(155 * scale)), cv2.FONT_HERSHEY_SIMPLEX, 0.72 * scale, (0, 255, 120), thick_bold, cv2.LINE_AA)
-        cv2.putText(panel, f'{conf_val:.1%}', (w - pad - int(65 * scale), int(155 * scale)), cv2.FONT_HERSHEY_SIMPLEX, 0.62 * scale, (0, 255, 120), thick_bold, cv2.LINE_AA)
-    else:
-        cv2.putText(panel, 'NO PREDICTION YET', (pad + int(10 * scale), int(135 * scale)), cv2.FONT_HERSHEY_SIMPLEX, 0.45 * scale, (140, 140, 140), thick_norm, cv2.LINE_AA)
-        cv2.putText(panel, 'Awaiting face detection', (pad + int(10 * scale), int(155 * scale)), cv2.FONT_HERSHEY_SIMPLEX, 0.36 * scale, (100, 100, 100), thick_norm, cv2.LINE_AA)
+    start_y = int(38 * scale)
+    prob_list = probs if probs is not None else [0.0] * len(labels)
 
-    cv2.putText(panel, 'Confidence Breakdown:', (pad, int(194 * scale)), cv2.FONT_HERSHEY_SIMPLEX, 0.42 * scale, (200, 200, 200), thick_norm, cv2.LINE_AA)
+    for i, (name, p) in enumerate(zip(labels, prob_list)):
+        y = start_y + i * row_h
+        is_top = (i == top_idx) if top_idx is not None else False
+        text_color = (0, 255, 130) if is_top else (190, 190, 190)
+        bar_color = (0, 210, 100) if is_top else (100, 95, 85)
 
-    y0 = int(216 * scale)
-    row_h = int(22 * scale)
-    top_k = cached_result.get('top_idx', -1) if cached_result else -1
-    probs = cached_result['probs'] if cached_result else [0.0] * len(labels)
-
-    name_w = int(72 * scale)
-    pct_w = int(40 * scale)
-    bar_start_x = pad + name_w + int(4 * scale)
-    bar_max_w = max(10, (w - pad) - bar_start_x - pct_w - int(6 * scale))
-
-    for i, (name, p) in enumerate(zip(labels, probs)):
-        y = y0 + i * row_h
-        is_top = (i == top_k)
-        text_color = (0, 255, 120) if is_top else (180, 180, 180)
-        bar_color = (0, 200, 100) if is_top else (100, 95, 85)
-
-        cv2.putText(panel, f'{name[:8]:<8s}', (pad, y), cv2.FONT_HERSHEY_SIMPLEX, 0.38 * scale, text_color, thick_norm, cv2.LINE_AA)
-        cv2.rectangle(panel, (bar_start_x, y - int(10 * scale)), (bar_start_x + bar_max_w, y), (42, 42, 48), -1)
+        cv2.putText(blended, f'{name[:8]:<8s}', (pad, y), cv2.FONT_HERSHEY_SIMPLEX, 0.35 * scale, text_color, 1, cv2.LINE_AA)
+        cv2.rectangle(blended, (bar_x, y - int(8 * scale)), (bar_x + bar_max_w, y), (42, 42, 48), -1)
         fill_w = int(p * bar_max_w)
         if fill_w > 0:
-            cv2.rectangle(panel, (bar_start_x, y - int(10 * scale)), (bar_start_x + fill_w, y), bar_color, -1)
-        cv2.putText(panel, f'{p:4.0%}', (bar_start_x + bar_max_w + int(6 * scale), y), cv2.FONT_HERSHEY_SIMPLEX, 0.35 * scale, text_color, thick_norm, cv2.LINE_AA)
+            cv2.rectangle(blended, (bar_x, y - int(8 * scale)), (bar_x + fill_w, y), bar_color, -1)
+        cv2.putText(blended, f'{p:3.0%}', (bar_x + bar_max_w + int(4 * scale), y), cv2.FONT_HERSHEY_SIMPLEX, 0.32 * scale, text_color, 1, cv2.LINE_AA)
 
-    cv2.putText(panel, f'Timeout interval: {timeout_duration:.1f}s', (pad, int(425 * scale)), cv2.FONT_HERSHEY_SIMPLEX, 0.36 * scale, (120, 120, 120), thick_norm, cv2.LINE_AA)
-    cv2.putText(panel, 'Press [q] to exit', (pad, int(445 * scale)), cv2.FONT_HERSHEY_SIMPLEX, 0.36 * scale, (90, 90, 90), thick_norm, cv2.LINE_AA)
+    frame[y0:y1, x0:x1] = blended
+
+def draw_result_panel(panel, cached_result, is_timed_out, remaining_timeout, timeout_duration=5.0):
+    """
+    Renders the primary emotion image and prediction caption in the right 30% placeholder.
+    """
+    h, w = panel.shape[:2]
+    panel[:] = (22, 22, 26)  
+    scale = max(0.6, min(2.2, min(h / 480.0, w / 274.0)))
+
+    if cached_result is not None:
+        label = cached_result['label']
+        try:
+            img = load_image(label)
+        except Exception:
+            img = None
+
+        if img is not None:
+            ih, iw = img.shape[:2]
+            pad_x = int(w * 0.08)
+            max_w = max(10, w - 2 * pad_x)
+            max_h = max(10, int(h * 0.62))
+
+            img_scale = min(max_w / iw, max_h / ih)
+            nw = max(1, int(iw * img_scale))
+            nh = max(1, int(ih * img_scale))
+            resized = cv2.resize(img, (nw, nh), interpolation=cv2.INTER_AREA)
+
+            ox = (w - nw) // 2
+            oy = int(h * 0.08)
+
+            if resized.ndim == 3 and resized.shape[2] == 4:
+                alpha = resized[:, :, 3] / 255.0
+                for c in range(3):
+                    panel[oy:oy+nh, ox:ox+nw, c] = (
+                        alpha * resized[:, :, c] + (1.0 - alpha) * panel[oy:oy+nh, ox:ox+nw, c]
+                    ).astype(np.uint8)
+            else:
+                panel[oy:oy+nh, ox:ox+nw] = resized[:, :, :3]
+
+            cv2.rectangle(panel, (ox, oy), (ox + nw, oy + nh), (55, 55, 65), 1)
+
+            caption = f"{label.upper()}  {cached_result['conf']:.0%}"
+            caption_scale = max(0.55, 0.72 * scale)
+            thick = max(1, int(round(1.8 * scale)))
+            text_y = oy + nh + int(32 * scale)
+
+            (tw, th), _ = cv2.getTextSize(caption, cv2.FONT_HERSHEY_SIMPLEX, caption_scale, thick)
+            cx = max(10, (w - tw) // 2)
+            cv2.putText(panel, caption, (cx, text_y), cv2.FONT_HERSHEY_SIMPLEX, caption_scale, (0, 255, 120), thick, cv2.LINE_AA)
+            
+    else:
+        # Minimal awaiting state
+        placeholder_text = "Awaiting Face"
+        font_scale = max(0.5, 0.6 * scale)
+        (tw, th), _ = cv2.getTextSize(placeholder_text, cv2.FONT_HERSHEY_SIMPLEX, font_scale, 1)
+        cx = max(10, (w - tw) // 2)
+        cy = h // 2
+        cv2.putText(panel, placeholder_text, (cx, cy), cv2.FONT_HERSHEY_SIMPLEX, font_scale, (120, 120, 130), 1, cv2.LINE_AA)
